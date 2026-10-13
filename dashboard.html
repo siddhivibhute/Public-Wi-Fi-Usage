@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Public Wi-Fi Usage Pattern Analysis</title>
+  <style>
+    :root {
+      --bg: #f3f7fb;
+      --panel: #ffffff;
+      --stroke: #dfeaf5;
+      --primary: #1f6feb;
+      --secondary: #0f9d58;
+      --accent: #ff8a3d;
+      --danger: #d93240;
+      --text: #1f2937;
+      --muted: #5d6b82;
+      --grid: #e5ecf4;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 24px auto;
+      padding: 20px;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #0b2545, #1f6feb);
+      color: white;
+      border-radius: 18px;
+      padding: 28px 30px;
+      box-shadow: 0 10px 24px rgba(31, 111, 235, 0.18);
+    }
+
+    .header h1 {
+      margin: 0 0 8px 0;
+      font-size: 2rem;
+    }
+
+    .header p {
+      margin: 0;
+      opacity: 0.9;
+      font-size: 0.98rem;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 18px;
+      margin: 24px 0;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 18px 20px;
+      box-shadow: 0 4px 16px rgba(17, 24, 39, 0.04);
+    }
+
+    .card .label {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .card .value {
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+      gap: 22px;
+      margin-top: 22px;
+    }
+
+    .chart-panel {
+      background: var(--panel);
+      border: 1px solid var(--stroke);
+      border-radius: 18px;
+      padding: 18px 18px 12px;
+      box-shadow: 0 4px 16px rgba(17, 24, 39, 0.04);
+    }
+
+    .chart-panel h3 {
+      margin: 0 0 14px 0;
+      font-size: 1.15rem;
+    }
+
+    svg {
+      width: 100%;
+      height: 280px;
+      display: block;
+      background: white;
+      border-radius: 10px;
+    }
+
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .legend-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .footnote {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Public Wi‑Fi Usage Pattern Analysis</h1>
+      <p>Hadoop + MapReduce + Hive + R academic micro-project dashboard generated from synthetic Wi‑Fi usage data.</p>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="grid">
+      <div class="chart-panel">
+        <h3>Hotspot Connection Count</h3>
+        <svg id="hotspotChart"></svg>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Usage by Hour of Day</h3>
+        <svg id="hourChart"></svg>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Data Used by Hotspot</h3>
+        <svg id="dataChart"></svg>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Device Type Distribution</h3>
+        <svg id="deviceChart"></svg>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Average Duration by Hotspot</h3>
+        <svg id="durationChart"></svg>
+      </div>
+    </div>
+
+    <div class="footnote">
+      Dataset is synthetic and intended for academic demonstration of Hadoop ecosystem workflows.
+    </div>
+  </div>
+
+  <script>
+    const colors = [
+      '#1f6feb', '#0f9d58', '#ff8a3d', '#d93240', '#7c4dff', '#00bcd4', '#ffb703', '#4caf50', '#9c27b0', '#607d8b'
+    ];
+
+    function parseCSV(text) {
+      const lines = text.trim().split(/\r?\n/).filter(Boolean);
+      if (!lines.length) return [];
+      const headers = lines[0].split(',');
+      return lines.slice(1).map((line) => {
+        const values = line.split(',');
+        const obj = {};
+        headers.forEach((header, idx) => {
+          obj[header] = values[idx] || '';
+        });
+        return obj;
+      });
+    }
+
+    async function loadCSV(filePath) {
+      const res = await fetch(filePath);
+      const text = await res.text();
+      return parseCSV(text);
+    }
+
+    function sum(values) {
+      return values.reduce((a, b) => a + Number(b || 0), 0);
+    }
+
+    function renderStats(data) {
+      const statsContainer = document.getElementById('stats');
+      const hotspotData = data.hotspotCounts;
+      const hourlyData = data.hourlyUsage;
+      const avgDurationData = data.avgDurations;
+      const dataUsage = data.dataUsage;
+
+      const totalConnections = sum(hotspotData.map(d => d.connection_count));
+      const peakHour = hourlyData.reduce((max, row) => Number(row.connection_count) > Number(max.connection_count) ? row : max, hourlyData[0]);
+      const mostUsed = hotspotData.reduce((max, row) => Number(row.connection_count) > Number(max.connection_count) ? row : max, hotspotData[0]);
+      const totalData = sum(dataUsage.map(d => d.total_data_used_mb));
+      const avgDuration = avgDurationData.reduce((acc, row) => acc + Number(row.avg_duration_minutes), 0) / avgDurationData.length;
+
+      const cards = [
+        { label: 'Total connections', value: totalConnections.toLocaleString() },
+        { label: 'Total hotspots', value: hotspotData.length },
+        { label: 'Peak usage hour', value: `${peakHour.usage_hour}:00` },
+        { label: 'Most used hotspot', value: mostUsed.hotspot_id },
+        { label: 'Total data consumed', value: `${Math.round(totalData).toLocaleString()} MB` },
+        { label: 'Average duration', value: `${avgDuration.toFixed(1)} min` }
+      ];
+
+      statsContainer.innerHTML = cards.map(card => `
+        <div class="card">
+          <div class="label">${card.label}</div>
+          <div class="value">${card.value}</div>
+        </div>
+      `).join('');
+    }
+
+    function drawBarChart(svgId, rows, config) {
+      const svg = document.getElementById(svgId);
+      const width = svg.clientWidth || 560;
+      const height = 280;
+      const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+      const chartWidth = width - margin.left - margin.right;
+      const chartHeight = height - margin.top - margin.bottom;
+
+      const values = rows.map(r => Number(r[config.valueKey]));
+      const maxVal = Math.max(...values, 1);
+
+      svg.innerHTML = '';
+
+      // Grid lines
+      for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (chartHeight / 5) * i;
+        const val = maxVal - (maxVal / 5) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', margin.left);
+        line.setAttribute('x2', width - margin.right);
+        line.setAttribute('y1', y);
+        line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#e5ecf4');
+        line.setAttribute('stroke-width', '1');
+        svg.appendChild(line);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', 10);
+        label.setAttribute('y', y + 4);
+        label.setAttribute('font-size', '11');
+        label.setAttribute('fill', '#5d6b82');
+        label.textContent = Math.round(val);
+        svg.appendChild(label);
+      }
+
+      const barWidth = chartWidth / rows.length - 10;
+      rows.forEach((row, idx) => {
+        const value = Number(row[config.valueKey]);
+        const x = margin.left + idx * (chartWidth / rows.length) + 8;
+        const barHeight = (value / maxVal) * chartHeight;
+        const y = margin.top + chartHeight - barHeight;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width', Math.max(12, barWidth));
+        rect.setAttribute('height', barHeight);
+        rect.setAttribute('rx', '6');
+        rect.setAttribute('fill', config.color || colors[idx % colors.length]);
+        svg.appendChild(rect);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', x + Math.max(12, barWidth) / 2);
+        label.setAttribute('y', height - 18);
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', '10');
+        label.setAttribute('fill', '#5d6b82');
+        label.textContent = row[config.labelKey].slice(-2) || row[config.labelKey];
+        svg.appendChild(label);
+      });
+
+      // X axis line
+      const axis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      axis.setAttribute('x1', margin.left);
+      axis.setAttribute('x2', width - margin.right);
+      axis.setAttribute('y1', height - margin.bottom);
+      axis.setAttribute('y2', height - margin.bottom);
+      axis.setAttribute('stroke', '#c7d6ea');
+      svg.appendChild(axis);
+    }
+
+    function drawLineChart(svgId, rows, config) {
+      const svg = document.getElementById(svgId);
+      const width = svg.clientWidth || 560;
+      const height = 280;
+      const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+      const chartWidth = width - margin.left - margin.right;
+      const chartHeight = height - margin.top - margin.bottom;
+      const values = rows.map(r => Number(r[config.valueKey]));
+      const maxVal = Math.max(...values, 1);
+
+      svg.innerHTML = '';
+
+      // grid
+      for (let i = 0; i <= 5; i++) {
+        const y = margin.top + (chartHeight / 5) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', margin.left);
+        line.setAttribute('x2', width - margin.right);
+        line.setAttribute('y1', y);
+        line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#e5ecf4');
+        svg.appendChild(line);
+      }
+
+      const points = rows.map((row, idx) => {
+        const x = margin.left + (idx * chartWidth) / (rows.length - 1 || 1);
+        const y = margin.top + chartHeight - (Number(row[config.valueKey]) / maxVal) * chartHeight;
+        return `${x},${y}`;
+      }).join(' ');
+
+      const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      polyline.setAttribute('points', points);
+      polyline.setAttribute('fill', 'none');
+      polyline.setAttribute('stroke', '#0f9d58');
+      polyline.setAttribute('stroke-width', '3');
+      svg.appendChild(polyline);
+
+      rows.forEach((row, idx) => {
+        const x = margin.left + (idx * chartWidth) / (rows.length - 1 || 1);
+        const y = margin.top + chartHeight - (Number(row[config.valueKey]) / maxVal) * chartHeight;
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', x);
+        circle.setAttribute('cy', y);
+        circle.setAttribute('r', '4');
+        circle.setAttribute('fill', '#0f9d58');
+        svg.appendChild(circle);
+      });
+
+      // x labels
+      rows.forEach((row, idx) => {
+        if (idx % 3 === 0 || idx === rows.length - 1) {
+          const x = margin.left + (idx * chartWidth) / (rows.length - 1 || 1);
+          const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          label.setAttribute('x', x);
+          label.setAttribute('y', height - 18);
+          label.setAttribute('text-anchor', 'middle');
+          label.setAttribute('font-size', '10');
+          label.setAttribute('fill', '#5d6b82');
+          label.textContent = row[config.labelKey];
+          svg.appendChild(label);
+        }
+      });
+    }
+
+    async function initDashboard() {
+      const hotspotCounts = await loadCSV('output/hive/hotspot_connections');
+      const hourlyUsage = await loadCSV('output/hive/hourly_usage');
+      const avgDurations = await loadCSV('output/hive/avg_duration_by_hotspot');
+      const dataUsage = await loadCSV('output/hive/total_data_usage_by_hotspot');
+      const deviceDistribution = await loadCSV('output/hive/device_distribution');
+
+      renderStats({ hotspotCounts, hourlyUsage, avgDurations, dataUsage });
+
+      drawBarChart('hotspotChart', hotspotCounts, { labelKey: 'hotspot_id', valueKey: 'connection_count', color: '#1f6feb' });
+      drawLineChart('hourChart', hourlyUsage, { labelKey: 'usage_hour', valueKey: 'connection_count' });
+      drawBarChart('dataChart', dataUsage, { labelKey: 'hotspot_id', valueKey: 'total_data_used_mb', color: '#ff8a3d' });
+      drawBarChart('durationChart', avgDurations, { labelKey: 'hotspot_id', valueKey: 'avg_duration_minutes', color: '#d93240' });
+
+      const deviceSvg = document.getElementById('deviceChart');
+      const width = deviceSvg.clientWidth || 560;
+      const height = 280;
+      const cx = 150;
+      const cy = 120;
+      const radius = 80;
+      const total = sum(deviceDistribution.map(d => Number(d.device_count)));
+
+      deviceSvg.innerHTML = '';
+      let startAngle = -Math.PI / 2;
+      deviceDistribution.forEach((d, idx) => {
+        const percent = Number(d.device_count) / total;
+        const endAngle = startAngle + percent * Math.PI * 2;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${cx} ${cy} L ${cx + radius * Math.cos(startAngle)} ${cy + radius * Math.sin(startAngle)} A ${radius} ${radius} 0 ${percent > 0.5 ? 1 : 0} 1 ${cx + radius * Math.cos(endAngle)} ${cy + radius * Math.sin(endAngle)} Z`);
+        path.setAttribute('fill', colors[idx % colors.length]);
+        path.setAttribute('stroke', '#fff');
+        path.setAttribute('stroke-width', '2');
+        deviceSvg.appendChild(path);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', cx + 120);
+        label.setAttribute('y', 28 + idx * 22);
+        label.setAttribute('font-size', '12');
+        label.setAttribute('fill', '#5d6b82');
+        label.textContent = `${d.device_type}: ${d.device_count}`;
+        deviceSvg.appendChild(label);
+
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', cx + 108);
+        dot.setAttribute('cy', 22 + idx * 22);
+        dot.setAttribute('r', '5');
+        dot.setAttribute('fill', colors[idx % colors.length]);
+        deviceSvg.appendChild(dot);
+
+        startAngle = endAngle;
+      });
+    }
+
+    initDashboard().catch(err => {
+      document.body.innerHTML = '<div style="padding: 30px; font-family: Arial; color: #333;">Unable to load the analytics dashboard. Please ensure the project data files exist and the local web server is running.</div>';
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
